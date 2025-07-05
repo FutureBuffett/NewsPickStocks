@@ -1,0 +1,5 @@
+.env
+.history
+/volumes/
+__pycache__/
+.venv/
