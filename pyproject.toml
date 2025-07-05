@@ -1,0 +1,26 @@
+[tool.poetry]
+name = "newspickstocks"
+version = "0.1.0"
+description = "뉴스 기사를 분석하여 사용자의 질문에 답변하고 관련 정보를 요약합니다."
+authors = ["Your Name <you@example.com>"]
+readme = "README.md"
+packages = [{include = "src"}]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+pymilvus = "==2.4.0"
+tqdm = "==4.66.2"
+langchain = "==0.1.14"
+langchain-community = "==0.0.31"
+langchain-core = "==0.1.40"
+langchain-text-splitters = "==0.0.1"
+unstructured = "*"
+beautifulsoup4 = "*"
+lxml = "*"
+streamlit = "*"
+python-dotenv = "*"
+scipy = "^1.16.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api" 
