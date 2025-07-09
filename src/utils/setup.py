@@ -21,7 +21,7 @@ def setup_executors():
     embedding_executor = EmbeddingExecutor(
         host='clovastudio.stream.ntruss.com',
         api_key=api_key,
-        request_id='93c7a569f2914cc9859f4cb01780e70d'
+        request_id='b03348f2c686483fa70dce5cd7164de0'
     )
     completion_executor = CompletionExecutor(
         host='https://clovastudio.stream.ntruss.com',
