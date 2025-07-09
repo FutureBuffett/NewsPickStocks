@@ -1,9 +1,10 @@
 import os
 from tqdm import tqdm
 from pymilvus import connections, FieldSchema, CollectionSchema, DataType, Collection, utility
+import time
+
 
 def store_documents(segmentation_executor, embedding_executor):
-    """문서를 처리하고 Milvus에 저장합니다."""
     data_dir = 'data'
     chunked_documents = []
 
@@ -25,16 +26,19 @@ def store_documents(segmentation_executor, embedding_executor):
             if full_text:
                 try:
                     request_data = {
-                        "postProcessMaxSize": 1000, "alpha": 0.0, "segCnt": -1,
-                        "postProcessMinSize": 100, "text": full_text, "postProcess": True
+                        "alpha": -100, "segCnt": -1,
+                        "text": full_text, "postProcess": True, "postProcessMaxSize": 1500, 
+                        "postProcessMinSize": 500
                     }
                     segmented_paragraphs = segmentation_executor.execute(request_data)
 
                     if segmented_paragraphs != 'Error':
                         for paragraph in segmented_paragraphs:
+                            chunk_text = ' '.join(paragraph)
+                            print(f"청킹된 텍스트 길이: {len(chunk_text)}")
                             chunked_documents.append({
                                 "source": txt_file_path,
-                                "text": ' '.join(paragraph)
+                                "text": chunk_text
                             })
                     else:
                         print(f"'{txt_file_path}'에 대한 문단 나누기 API 호출에 실패했습니다.")
@@ -53,6 +57,7 @@ def store_documents(segmentation_executor, embedding_executor):
             request_json = {"text": chunked_document['text']}
             response_data = embedding_executor.execute(request_json)
             chunked_document["embedding"] = response_data
+            time.sleep(1)
         except ValueError as e:
             print(f"임베딩 API 오류: {e}")
         except Exception as e:
