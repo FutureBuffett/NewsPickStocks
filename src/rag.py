@@ -39,3 +39,73 @@ def answer_question(question, embedding_executor, completion_executor):
     answer = completion_executor.execute(request_data)
     
     return answer, reference 
+
+def hybrid_search(news_text, segmentation_executor, embedding_executor, topk=10, doc_weight=1.0, chunk_weight=0.7, doc_vector=None, chunk_vectors=None, filtered_full_text=None, filtered_chunks=None):
+    collection_name = "NewsPickStock"
+    if not utility.has_collection(collection_name):
+        return f"'{collection_name}' 컬렉션이 존재하지 않습니다. 먼저 문서를 처리하고 저장해주세요.", []
+
+    collection = Collection(collection_name)
+    collection.load()
+
+    # 전체 임베딩
+    if doc_vector is None:
+        if filtered_full_text is not None:
+            doc_vector = embedding_executor.execute({"text": filtered_full_text})
+        else:
+            doc_vector = embedding_executor.execute({"text": news_text})
+
+    # 청크 임베딩
+    if chunk_vectors is None:
+        if filtered_chunks is not None:
+            chunk_vectors = [embedding_executor.execute({"text": chunk}) for chunk in filtered_chunks if len(chunk) > 10]
+        else:
+            segmented_chunks = segmentation_executor.execute({"text": news_text})
+            chunk_vectors = [embedding_executor.execute({"text": chunk}) for chunk in segmented_chunks if isinstance(chunk, str) and len(chunk) > 10]
+
+    search_params = {"metric_type": "IP", "params": {"ef": 64}}
+
+
+    # doc 검색
+    doc_results = collection.search(
+        data=[doc_vector],
+        anns_field="embedding",
+        param=search_params,
+        limit=topk,
+        output_fields=["metadata", "type"],
+        expr="type == 'doc'"
+    )[0]
+
+    # chunk 검색
+    chunk_results = []
+    for chunk_vector in chunk_vectors:
+        chunk_results.extend(collection.search(
+            data=[chunk_vector],
+            anns_field="embedding",
+            param=search_params,
+            limit=topk,
+            output_fields=["metadata", "type"],
+            expr="type == 'chunk'"
+        )[0])
+
+    from collections import defaultdict
+    stock_scores = defaultdict(float)
+    seen = set()
+    for hit in doc_results:
+        meta = hit.entity.get("metadata")
+        print("[hybrid_search] doc meta:", meta)
+        stock = meta.get("company") if meta else None
+        key = (stock, meta.get("date") if meta else None)
+        if key not in seen:
+            stock_scores[stock] += hit.distance * doc_weight
+            seen.add(key)
+    for hit in chunk_results:
+        meta = hit.entity.get("metadata")
+        print("[hybrid_search] chunk meta:", meta)
+        stock = meta.get("company") if meta else None
+        key = (stock, meta.get("date") if meta else None)
+        if key not in seen:
+            stock_scores[stock] += hit.distance * chunk_weight
+            seen.add(key)
+    ranked = sorted(stock_scores.items(), key=lambda x: x[1], reverse=True)
+    return ranked 
