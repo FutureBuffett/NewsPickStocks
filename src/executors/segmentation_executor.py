@@ -15,7 +15,7 @@ class SegmentationExecutor:
         }
 
         conn = http.client.HTTPSConnection(self._host)
-        conn.request('POST', '/testapp/v1/api-tools/segmentation', json.dumps(completion_request), headers)
+        conn.request('POST', '/serviceapp/v1/api-tools/segmentation', json.dumps(completion_request), headers)
         response = conn.getresponse()
         result = json.loads(response.read().decode(encoding='utf-8'))
         conn.close()
