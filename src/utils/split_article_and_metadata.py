@@ -2,8 +2,8 @@ import os
 
 def split_article_and_metadata(file_path):
     keys = [
-        "company", "ticker", "sector", "category", "subcategory",
-        "date", "open", "high", "low", "close", "volume", "url"
+        "company", "ticker", "sector", "subcategory", "category","base_date",
+        "date","days_from_base", "open", "high", "low", "close", "volume", "macd", "url"
     ]
     results = []
     with open(file_path, 'r', encoding='utf-8') as f:
@@ -12,11 +12,11 @@ def split_article_and_metadata(file_path):
     while i < len(lines):
         line = lines[i].strip()
         parts = line.split('\t')
-        if len(parts) < 13:
+        if len(parts) < len(keys):
             i += 1
             continue
-        metadata = dict(zip(keys, parts[:12]))
-        text = parts[12]
+        metadata = dict(zip(keys, parts[:len(keys)]))
+        text = parts[len(keys)]
         # 본문이 큰따옴표로 시작하지만 끝나지 않은 경우
         if text.startswith('"') and not text.endswith('"'):
             text_lines = [text.lstrip('"')]

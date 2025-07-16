@@ -16,7 +16,7 @@ def setup_executors():
     segmentation_executor = SegmentationExecutor(
         host='clovastudio.stream.ntruss.com',
         api_key=api_key,
-        request_id='c2a7bd64bf46430faaa11edda36c63a9'
+        request_id='83f5f516456d4df59920405aa5a03f69'
     )
     embedding_executor = EmbeddingExecutor(
         host='clovastudio.stream.ntruss.com',

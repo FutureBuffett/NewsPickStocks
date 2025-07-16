@@ -65,28 +65,77 @@ def hybrid_search(news_text, segmentation_executor, embedding_executor, topk=10,
 
     search_params = {"metric_type": "IP", "params": {"ef": 64}}
 
+    # 중복 제거 함수
+    def deduplicate_hits(hits):
+        seen = set()
+        deduped = []
+        for hit in hits:
+            meta = hit.entity.get("metadata")
+            company = meta.get("company") if meta else None
+            base_date = meta.get("base_date") if meta else None
+            embedding = hit.entity.get("embedding") or []
+            embedding_tuple = tuple(round(x, 6) for x in embedding)
+            key = (embedding_tuple, company, base_date)
+            if key not in seen:
+                seen.add(key)
+                deduped.append(hit)
+        return deduped
 
-    # doc 검색
-    doc_results = collection.search(
-        data=[doc_vector],
-        anns_field="embedding",
-        param=search_params,
-        limit=topk,
-        output_fields=["metadata", "type"],
-        expr="type == 'doc'"
-    )[0]
+    # doc 검색: company diversity 보장
+    doc_topk = topk
+    while True:
+        doc_results = collection.search(
+            data=[doc_vector],
+            anns_field="embedding",
+            param=search_params,
+            limit=doc_topk,
+            output_fields=["metadata", "type", "embedding"],
+            expr="type == 'doc'"
+        )[0]
+        doc_results = deduplicate_hits(doc_results)
+        companies = set(
+            (hit.entity.get("metadata") or {}).get("company")
+            for hit in doc_results
+        )
+        if len(companies) >= 3 or doc_topk > 50:
+            break
+        doc_topk += 10
 
-    # chunk 검색
+    # 청크 검색: company diversity 보장
+    chunk_topk = topk
     chunk_results = []
     for chunk_vector in chunk_vectors:
         chunk_results.extend(collection.search(
             data=[chunk_vector],
             anns_field="embedding",
             param=search_params,
-            limit=topk,
-            output_fields=["metadata", "type"],
+            limit=chunk_topk,
+            output_fields=["metadata", "type", "embedding"],
             expr="type == 'chunk'"
         )[0])
+    chunk_results = deduplicate_hits(chunk_results)
+    chunk_companies = set(
+        (hit.entity.get("metadata") or {}).get("company")
+        for hit in chunk_results
+    )
+    # 만약 3개 미만이면 topk를 늘려서 재검색(여기선 50까지만)
+    while len(chunk_companies) < 3 and chunk_topk <= 50:
+        chunk_topk += 10
+        chunk_results = []
+        for chunk_vector in chunk_vectors:
+            chunk_results.extend(collection.search(
+                data=[chunk_vector],
+                anns_field="embedding",
+                param=search_params,
+                limit=chunk_topk,
+                output_fields=["metadata", "type", "embedding"],
+                expr="type == 'chunk'"
+            )[0])
+        chunk_results = deduplicate_hits(chunk_results)
+        chunk_companies = set(
+            (hit.entity.get("metadata") or {}).get("company")
+            for hit in chunk_results
+        )
 
     from collections import defaultdict
     stock_scores = defaultdict(float)
@@ -95,7 +144,7 @@ def hybrid_search(news_text, segmentation_executor, embedding_executor, topk=10,
         meta = hit.entity.get("metadata")
         print("[hybrid_search] doc meta:", meta)
         stock = meta.get("company") if meta else None
-        key = (stock, meta.get("date") if meta else None)
+        key = (stock, meta.get("base_date") if meta else None)
         if key not in seen:
             stock_scores[stock] += hit.distance * doc_weight
             seen.add(key)
@@ -103,9 +152,10 @@ def hybrid_search(news_text, segmentation_executor, embedding_executor, topk=10,
         meta = hit.entity.get("metadata")
         print("[hybrid_search] chunk meta:", meta)
         stock = meta.get("company") if meta else None
-        key = (stock, meta.get("date") if meta else None)
+        key = (stock, meta.get("base_date") if meta else None)
         if key not in seen:
             stock_scores[stock] += hit.distance * chunk_weight
             seen.add(key)
     ranked = sorted(stock_scores.items(), key=lambda x: x[1], reverse=True)
-    return ranked 
+    # 상위 3개만 반환
+    return ranked[:3] 
