@@ -20,6 +20,8 @@ lxml = "*"
 streamlit = "*"
 python-dotenv = "*"
 scipy = "^1.16.0"
+diskcache = "^5.6.3"
+ratelimit = "^2.2.1"
 
 [build-system]
 requires = ["poetry-core"]

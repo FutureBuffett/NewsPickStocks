@@ -2,6 +2,7 @@ import streamlit as st
 from pymilvus import connections
 import time
 import os
+import diskcache
 
 from utils.setup import setup_executors
 from db.document_store import store_documents
@@ -39,6 +40,12 @@ with st.sidebar:
             st.info("채팅 기록이 초기화됩니다.")
             time.sleep(2)
             st.rerun()
+    if st.button("임베딩/청킹 캐시 삭제"):
+        seg_cache = diskcache.Cache('segmentation_cache.db')
+        emb_cache = diskcache.Cache('embedding_cache.db')
+        seg_cache.clear()
+        emb_cache.clear()
+        st.success("임베딩/청킹 캐시가 모두 삭제되었습니다.")
 
 # --- 사용자 입력 및 추천 ---
 prompt = st.text_area("뉴스 기사 입력", "", height=200)
