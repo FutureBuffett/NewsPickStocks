@@ -78,7 +78,7 @@ def store_documents(segmentation_executor, embedding_executor, data_dir):
                 print(f"  전체 임베딩 오류: {e}")
 
     # 청크 임베딩 캐시 적용
-    for cidx, chunked_document in enumerate(tqdm(chunked_documents, desc="청크 임베딩 중")):
+    for cidx, chunked_document in enumerate(tqdm(chunked_documents, desc="청크 임베딩 생성 중")):
         text = chunked_document['text']
         if text in embedding_cache:
             chunked_document["embedding"] = embedding_cache[text]
@@ -98,7 +98,7 @@ def store_documents(segmentation_executor, embedding_executor, data_dir):
 
     fields = [
         FieldSchema(name="id", dtype=DataType.INT64, is_primary=True, auto_id=True),
-        FieldSchema(name="text", dtype=DataType.VARCHAR, max_length=9000),
+        FieldSchema(name="text", dtype=DataType.VARCHAR, max_length=65535),
         FieldSchema(name="embedding", dtype=DataType.FLOAT_VECTOR, dim=1024),
         FieldSchema(name="metadata", dtype=DataType.JSON),
         FieldSchema(name="type", dtype=DataType.VARCHAR, max_length=10)
@@ -106,7 +106,7 @@ def store_documents(segmentation_executor, embedding_executor, data_dir):
     schema = CollectionSchema(fields, description="뉴스 기사 및 주식 정보")
     collection = Collection(name=collection_name, schema=schema)
 
-    batch_size = 100
+    batch_size = 500
     # 전체 임베딩 batch insert
     batch_texts, batch_embeddings, batch_metadatas, batch_types = [], [], [], []
     for didx, doc in enumerate(tqdm(doc_level_documents, desc="전체 임베딩 DB 저장 중")):
