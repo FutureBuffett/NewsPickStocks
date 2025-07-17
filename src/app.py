@@ -8,6 +8,7 @@ from utils.setup import setup_executors
 from db.document_store import store_documents
 from rag import answer_question, hybrid_search
 from utils.chunk_filter import is_irrelevant_chunk
+from utils.clean_text import clean_text
 
 # --- 페이지 설정 ---
 st.set_page_config(page_title="뉴스 기반 주식 추천", page_icon="📰")
@@ -51,6 +52,7 @@ with st.sidebar:
 prompt = st.text_area("뉴스 기사 입력", "", height=200)
 if st.button("추천 종목 분석하기") and prompt.strip():
     with st.spinner("추천 종목을 분석하는 중입니다..."):
+        cleaned_prompt = clean_text(prompt)
         segmented_chunks = segmentation_executor.execute({"text": prompt})
         filtered_chunks = []
         for chunk in segmented_chunks:
@@ -60,7 +62,7 @@ if st.button("추천 종목 분석하기") and prompt.strip():
         filtered_full_text = '\n'.join(filtered_chunks)
 
         ranked_stocks = hybrid_search(
-            prompt, segmentation_executor, embedding_executor,
+            cleaned_prompt , segmentation_executor, embedding_executor,
             filtered_full_text=filtered_full_text, filtered_chunks=filtered_chunks
         )
         print("순위" + str(ranked_stocks))
