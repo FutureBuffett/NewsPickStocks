@@ -6,7 +6,7 @@ def split_article_and_metadata(file_path):
         "date","days_from_base", "open", "high", "low", "close", "volume", "macd", "url"
     ]
     results = []
-    with open(file_path, 'r', encoding='utf-8') as f:
+    with open(file_path, 'r', encoding='utf-16') as f:
         lines = f.readlines()
     i = 0
     while i < len(lines):
