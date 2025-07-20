@@ -1,4 +1,5 @@
 from pymilvus import connections, Collection, utility
+from concurrent.futures import ThreadPoolExecutor
 
 def answer_question(question, embedding_executor, completion_executor):
     collection_name = "NewsPickStock"
@@ -48,6 +49,20 @@ def hybrid_search(news_text, segmentation_executor, embedding_executor, topk=10,
     collection = Collection(collection_name)
     collection.load()
 
+    # deduplicate_hits 함수 가장 위에 위치
+    def deduplicate_hits(hits):
+        seen = set()
+        deduped = []
+        for hit in hits:
+            meta = hit.entity.get("metadata")
+            company = meta.get("company") if meta else None
+            base_date = meta.get("base_date") if meta else None
+            key = (company, base_date)
+            if key not in seen:
+                seen.add(key)
+                deduped.append(hit)
+        return deduped
+
     # 전체 임베딩
     if doc_vector is None:
         if filtered_full_text is not None:
@@ -63,23 +78,7 @@ def hybrid_search(news_text, segmentation_executor, embedding_executor, topk=10,
             segmented_chunks = segmentation_executor.execute({"text": news_text})
             chunk_vectors = [embedding_executor.execute({"text": chunk}) for chunk in segmented_chunks if isinstance(chunk, str) and len(chunk) > 10]
 
-    search_params = {"metric_type": "IP", "params": {"ef": 64}}
-
-    # 중복 제거 함수
-    def deduplicate_hits(hits):
-        seen = set()
-        deduped = []
-        for hit in hits:
-            meta = hit.entity.get("metadata")
-            company = meta.get("company") if meta else None
-            base_date = meta.get("base_date") if meta else None
-            embedding = hit.entity.get("embedding") or []
-            embedding_tuple = tuple(round(x, 6) for x in embedding)
-            key = (embedding_tuple, company, base_date)
-            if key not in seen:
-                seen.add(key)
-                deduped.append(hit)
-        return deduped
+    search_params = {"metric_type": "IP", "params": {"ef": 32}}
 
     # doc 검색: company diversity 보장
     doc_topk = topk
@@ -101,18 +100,24 @@ def hybrid_search(news_text, segmentation_executor, embedding_executor, topk=10,
             break
         doc_topk += 10
 
-    # 청크 검색: company diversity 보장
+    # 청크 검색: company diversity 보장 (병렬화 적용)
     chunk_topk = topk
     chunk_results = []
-    for chunk_vector in chunk_vectors:
-        chunk_results.extend(collection.search(
+    def search_chunk(chunk_vector, chunk_topk):
+        return collection.search(
             data=[chunk_vector],
             anns_field="embedding",
             param=search_params,
             limit=chunk_topk,
-            output_fields=["metadata", "type", "embedding"],
+            output_fields=["metadata", "type"],
             expr="type == 'chunk'"
-        )[0])
+        )[0]
+
+    with ThreadPoolExecutor() as executor:
+        results = list(executor.map(lambda v: search_chunk(v, chunk_topk), chunk_vectors))
+        for res in results:
+            chunk_results.extend(res)
+    
     chunk_results = deduplicate_hits(chunk_results)
     chunk_companies = set(
         (hit.entity.get("metadata") or {}).get("company")
@@ -122,15 +127,10 @@ def hybrid_search(news_text, segmentation_executor, embedding_executor, topk=10,
     while len(chunk_companies) < 3 and chunk_topk <= 50:
         chunk_topk += 10
         chunk_results = []
-        for chunk_vector in chunk_vectors:
-            chunk_results.extend(collection.search(
-                data=[chunk_vector],
-                anns_field="embedding",
-                param=search_params,
-                limit=chunk_topk,
-                output_fields=["metadata", "type", "embedding"],
-                expr="type == 'chunk'"
-            )[0])
+        with ThreadPoolExecutor() as executor:
+            results = list(executor.map(lambda v: search_chunk(v, chunk_topk), chunk_vectors))
+            for res in results:
+                chunk_results.extend(res)
         chunk_results = deduplicate_hits(chunk_results)
         chunk_companies = set(
             (hit.entity.get("metadata") or {}).get("company")

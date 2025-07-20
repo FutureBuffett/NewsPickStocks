@@ -112,9 +112,6 @@ def store_documents(segmentation_executor, embedding_executor, data_dir):
     for didx, doc in enumerate(tqdm(doc_level_documents, desc="전체 임베딩 DB 저장 중")):
         if "embedding" in doc:
             text = doc['text']
-            if len(text) > 9000:
-                print(f"[경고] 전체 임베딩 본문 길이 초과({len(text)}자):\n앞500: {text[:500]}\n... [중략] ...\n뒤500: {text[-500:]}", flush=True)
-                continue  # 저장하지 않음
             batch_texts.append(doc['text'])
             batch_embeddings.append(doc['embedding'])
             batch_metadatas.append(doc['metadata'])
