@@ -4,3 +4,16 @@
 __pycache__/
 .venv/
 /milvus/
+data/stock_data.txt
+data/example.txt
+.env.example
+embedding_cache.db/cache.db
+embedding_cache.db/cache.db-shm
+embedding_cache.db/cache.db-wal
+segmentation_cache.db/cache.db
+segmentation_cache.db/cache.db-shm
+segmentation_cache.db/cache.db-wal
+segmentation_cache.db/bd/8c/1514512bb95843dbb71bcf85ab88.val
+segmentation_cache.db/eb/e1/b83f9cb6d828b96a61a06cd8873a.val
+segmentation_cache.db/e0/cb/3cc60e25f785a1777f082f286844.val
+segmentation_cache.db/a0/79/f8bbd00402f5e4083d79a634f8c3.val
