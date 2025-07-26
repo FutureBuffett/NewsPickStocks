@@ -66,14 +66,15 @@ def store_documents(segmentation_executor, embedding_executor, data_dir):
     # 전체 임베딩 캐시 적용
     for didx, doc in enumerate(tqdm(doc_level_documents, desc="전체 임베딩 생성 중")):
         text = doc['text']
-        if text in embedding_cache:
-            doc["embedding"] = embedding_cache[text]
+        truncated_text = text[:8192] if len(text) > 8192 else text
+        if truncated_text in embedding_cache:
+            doc["embedding"] = embedding_cache[truncated_text]
         else:
             try:
-                request_json = {"text": text}
+                request_json = {"text": truncated_text}
                 response_data = embedding_executor.execute(request_json)
                 doc["embedding"] = response_data
-                embedding_cache[text] = response_data
+                embedding_cache[truncated_text] = response_data
             except Exception as e:
                 print(f"  전체 임베딩 오류: {e}")
 
