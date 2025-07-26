@@ -1,5 +1,8 @@
 from pymilvus import connections, Collection, utility
 from concurrent.futures import ThreadPoolExecutor
+import json
+from pymilvus import Collection, utility
+from datetime import datetime
 
 def answer_question(question, embedding_executor, completion_executor):
     collection_name = "NewsPickStock"
@@ -41,7 +44,21 @@ def answer_question(question, embedding_executor, completion_executor):
     
     return answer, reference 
 
-def hybrid_search(news_text, segmentation_executor, embedding_executor, topk=10, doc_weight=1.0, chunk_weight=0.7, doc_vector=None, chunk_vectors=None, filtered_full_text=None, filtered_chunks=None):
+
+
+def hybrid_search(
+    news_text: str,
+    segmentation_executor,
+    embedding_executor,
+    topk: int = 10,
+    doc_weight: float = 1.0,
+    chunk_weight: float = 0.7,
+    doc_vector=None,
+    chunk_vectors=None,
+    filtered_full_text=None,
+    filtered_chunks=None,
+    date_window: int = 10
+):
     collection_name = "NewsPickStock"
     if not utility.has_collection(collection_name):
         return f"'{collection_name}' 컬렉션이 존재하지 않습니다. 먼저 문서를 처리하고 저장해주세요.", []
@@ -49,38 +66,18 @@ def hybrid_search(news_text, segmentation_executor, embedding_executor, topk=10,
     collection = Collection(collection_name)
     collection.load()
 
-    # deduplicate_hits 함수 가장 위에 위치
-    def deduplicate_hits(hits):
-        seen = set()
-        deduped = []
-        for hit in hits:
-            meta = hit.entity.get("metadata")
-            company = meta.get("company") if meta else None
-            base_date = meta.get("base_date") if meta else None
-            key = (company, base_date)
-            if key not in seen:
-                seen.add(key)
-                deduped.append(hit)
-        return deduped
-
     # 전체 임베딩
     if doc_vector is None:
-        if filtered_full_text is not None:
-            doc_vector = embedding_executor.execute({"text": filtered_full_text})
-        else:
-            doc_vector = embedding_executor.execute({"text": news_text})
+        doc_vector = embedding_executor.execute({"text": filtered_full_text or news_text})
 
     # 청크 임베딩
     if chunk_vectors is None:
-        if filtered_chunks is not None:
-            chunk_vectors = [embedding_executor.execute({"text": chunk}) for chunk in filtered_chunks if len(chunk) > 10]
-        else:
-            segmented_chunks = segmentation_executor.execute({"text": news_text})
-            chunk_vectors = [embedding_executor.execute({"text": chunk}) for chunk in segmented_chunks if isinstance(chunk, str) and len(chunk) > 10]
+        chunks = filtered_chunks or segmentation_executor.execute({"text": news_text})
+        chunk_vectors = [embedding_executor.execute({"text": chunk}) for chunk in chunks if isinstance(chunk, str) and len(chunk) > 10]
 
     search_params = {"metric_type": "IP", "params": {"ef": 32}}
 
-    # doc 검색: company diversity 보장
+    # 기업 다양성 확보 (문서)
     doc_topk = topk
     while True:
         doc_results = collection.search(
@@ -88,22 +85,17 @@ def hybrid_search(news_text, segmentation_executor, embedding_executor, topk=10,
             anns_field="embedding",
             param=search_params,
             limit=doc_topk,
-            output_fields=["metadata", "type", "embedding"],
+            output_fields=["metadata", "type"],
             expr="type == 'doc'"
         )[0]
-        doc_results = deduplicate_hits(doc_results)
-        companies = set(
-            (hit.entity.get("metadata") or {}).get("company")
-            for hit in doc_results
-        )
-        if len(companies) >= 3 or doc_topk > 50:
+        doc_companies = set((hit.entity.get("metadata") or {}).get("company") for hit in doc_results)
+        if len(doc_companies) >= 3 or doc_topk >= 50:
             break
         doc_topk += 10
 
-    # 청크 검색: company diversity 보장 (병렬화 적용)
+    # 기업 다양성 확보 (청크)
     chunk_topk = topk
-    chunk_results = []
-    def search_chunk(chunk_vector, chunk_topk):
+    def search_chunk(chunk_vector):
         return collection.search(
             data=[chunk_vector],
             anns_field="embedding",
@@ -114,48 +106,68 @@ def hybrid_search(news_text, segmentation_executor, embedding_executor, topk=10,
         )[0]
 
     with ThreadPoolExecutor() as executor:
-        results = list(executor.map(lambda v: search_chunk(v, chunk_topk), chunk_vectors))
-        for res in results:
-            chunk_results.extend(res)
-    
-    chunk_results = deduplicate_hits(chunk_results)
-    chunk_companies = set(
-        (hit.entity.get("metadata") or {}).get("company")
-        for hit in chunk_results
-    )
-    # 만약 3개 미만이면 topk를 늘려서 재검색(여기선 50까지만)
+        results = executor.map(search_chunk, chunk_vectors)
+        chunk_results = [hit for result in results for hit in result]
+
+    chunk_companies = set((hit.entity.get("metadata") or {}).get("company") for hit in chunk_results)
     while len(chunk_companies) < 3 and chunk_topk <= 50:
         chunk_topk += 10
-        chunk_results = []
         with ThreadPoolExecutor() as executor:
-            results = list(executor.map(lambda v: search_chunk(v, chunk_topk), chunk_vectors))
-            for res in results:
-                chunk_results.extend(res)
-        chunk_results = deduplicate_hits(chunk_results)
-        chunk_companies = set(
-            (hit.entity.get("metadata") or {}).get("company")
-            for hit in chunk_results
-        )
+            results = executor.map(search_chunk, chunk_vectors)
+            chunk_results = [hit for result in results for hit in result]
+        chunk_companies = set((hit.entity.get("metadata") or {}).get("company") for hit in chunk_results)
 
-    from collections import defaultdict
-    stock_scores = defaultdict(float)
-    seen = set()
-    for hit in doc_results:
-        meta = hit.entity.get("metadata")
-        print("[hybrid_search] doc meta:", meta)
-        stock = meta.get("company") if meta else None
-        key = (stock, meta.get("base_date") if meta else None)
-        if key not in seen:
-            stock_scores[stock] += hit.distance * doc_weight
-            seen.add(key)
-    for hit in chunk_results:
-        meta = hit.entity.get("metadata")
-        print("[hybrid_search] chunk meta:", meta)
-        stock = meta.get("company") if meta else None
-        key = (stock, meta.get("base_date") if meta else None)
-        if key not in seen:
-            stock_scores[stock] += hit.distance * chunk_weight
-            seen.add(key)
-    ranked = sorted(stock_scores.items(), key=lambda x: x[1], reverse=True)
-    # 상위 3개만 반환
-    return ranked[:3] 
+    # 결과 통합 및 prices 구조 생성
+    company_map = {}
+
+    for hit in doc_results + chunk_results:
+        entity = hit.entity
+        meta = entity.metadata if hasattr(entity, "metadata") else {}
+        company = meta.get("company")
+        base_date_str = meta.get("base_date")
+        date_str = meta.get("date")
+
+        if not company or not base_date_str or not date_str:
+            continue
+
+        try:
+            base_date = datetime.strptime(base_date_str, "%Y-%m-%d")
+            date = datetime.strptime(date_str, "%Y-%m-%d")
+        except Exception as e:
+            print(f"[⚠️ 날짜 파싱 실패] meta: {meta} | 오류: {e}")
+            continue
+
+        delta_days = (date - base_date).days
+        if abs(delta_days) > date_window:
+            continue
+
+        # ✅ company + base_date 를 고유 키로 사용
+        key = f"{company}__{base_date_str}"
+        score = hit.distance * (doc_weight if entity.get("type") == "doc" else chunk_weight)
+
+        if key not in company_map:
+            company_map[key] = {
+                "company": company,
+                "base_date": base_date_str,
+                "prices": [],
+                "score": 0.0
+            }
+
+        company_map[key]["prices"].append({
+            "date": date_str,
+            "open": meta.get("open"),
+            "high": meta.get("high"),
+            "low": meta.get("low"),
+            "close": meta.get("close"),
+            "volume": meta.get("volume"),
+            "url": meta.get("url")
+        })
+
+        company_map[key]["score"] += score
+
+    # 날짜순 정렬
+    for comp in company_map.values():
+        comp["prices"] = sorted(comp["prices"], key=lambda x: x["date"])
+
+    ranked = sorted(company_map.values(), key=lambda x: x["score"], reverse=True)
+    return ranked[:3]
